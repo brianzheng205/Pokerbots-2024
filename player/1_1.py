@@ -67,7 +67,6 @@ class Player(Bot):
         # if num_rounds == NUM_ROUNDS:
         #     print(game_clock)
 
-
     def calculate_strength(self, my_cards, iters):
         deck = eval7.Deck()
         my_cards = [eval7.Card(card) for card in my_cards]
@@ -98,7 +97,7 @@ class Player(Bot):
                 wins_wo_auction += 1
             else:
                 # We lost the round
-                wins_wo_auction
+                wins_wo_auction += 0
 
         for i in range(iters):
             deck.shuffle()
@@ -125,8 +124,8 @@ class Player(Bot):
                 #We tied the round
                 wins_w_auction += 0
             
-            strength_w_auction = wins_w_auction / (2* iters)
-            strength_wo_auction = wins_wo_auction/ (2* iters)
+            strength_w_auction = wins_w_auction / (2*iters)
+            strength_wo_auction = wins_wo_auction/ (2*iters)
 
         return strength_w_auction, strength_wo_auction
 
@@ -201,20 +200,20 @@ class Player(Bot):
             #print("\tcheck/folding to win")
             return CheckAction() if CheckAction in legal_actions else FoldAction()
 
+        # Fold if not strong hole
+        if not self.strong_hole:
+            return CheckAction() if CheckAction in legal_actions else FoldAction()
+        
+        # Bidding logic
         if BidAction in legal_actions:
-            max_bid_percentage = 0.40
-            min_bid_percentage = 0.15
-            bid_percentage = 0.75*strength_diff + 1/100*random.randint(-500,500)
-            bid_percentage = max(min_bid_percentage, bid_percentage)
-            bid_percentage = min(max_bid_percentage, bid_percentage)
-            bid = int(pot*bid_percentage)
+            bid = 200 if not self.enough_chips_to_win_game(game_state, active) and \
+                self.strength_w_auction > 0.5 and \
+                self.strength_w_auction - self.strength_wo_auction > 0.2 \
+                else 0
             return BidAction(bid)
         
         if RaiseAction in legal_actions:
             min_raise, max_raise = round_state.raise_bounds()
-
-        if not self.strong_hole:
-            return FoldAction()
         
         if street < 3:
             strength = (self.strength_w_auction + self.strength_wo_auction)/2
@@ -265,38 +264,6 @@ class Player(Bot):
                 my_action = CheckAction()
         
         return my_action
-                
-
-
-
-
-
-
-            
-
-        
-
-
-
-
-        if RaiseAction in legal_actions:
-           min_raise, max_raise = round_state.raise_bounds()  # the smallest and largest numbers of chips for a legal bet/raise
-           min_cost = min_raise - my_pip  # the cost of a minimum bet/raise
-           max_cost = max_raise - my_pip  # the cost of a maximum bet/raise
-           print(min_raise, max_raise, my_stack, opp_stack, my_pip, opp_pip)
-        
-        if RaiseAction in legal_actions and len(my_cards) == 3:
-            return RaiseAction(max_raise)
-        if self.strong_hole == True and RaiseAction in legal_actions:
-            raise_amount = min_raise + (max_raise - min_raise) * 0.1
-            return RaiseAction(raise_amount)
-        if CheckAction in legal_actions:
-            return CheckAction()
-        elif BidAction in legal_actions:
-            return BidAction(int(0.5*my_stack)) # random bid between 0 and our stack
-        elif self.strong_hole == False and FoldAction in legal_actions:
-            return FoldAction()
-        return CallAction()
 
 
 if __name__ == '__main__':
