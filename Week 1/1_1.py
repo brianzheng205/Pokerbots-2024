@@ -1,6 +1,3 @@
-'''
-Simple example pokerbot, written in Python.
-'''
 from skeleton.actions import FoldAction, CallAction, CheckAction, RaiseAction, BidAction
 from skeleton.states import GameState, TerminalState, RoundState
 from skeleton.states import NUM_ROUNDS, STARTING_STACK, BIG_BLIND, SMALL_BLIND
@@ -8,6 +5,7 @@ from skeleton.bot import Bot
 from skeleton.runner import parse_args, run_bot
 import random
 import eval7
+import math
 
 
 class Player(Bot):
@@ -39,12 +37,12 @@ class Player(Bot):
         Returns:
         Nothing.
         '''
+        print(f'Round {game_state.round_num}')
         my_bankroll = game_state.bankroll  # the total number of chips you've gained or lost from the beginning of the game to the start of this round
         game_clock = game_state.game_clock  # the total number of seconds your bot has left to play this game
         round_num = game_state.round_num  # the round number from 1 to NUM_ROUNDS
         my_cards = round_state.hands[active]  # your cards
         big_blind = bool(active)  # True if you are the big blind
-        pass
         
         card1 = my_cards[0]
         card2 = my_cards[1]
@@ -59,7 +57,6 @@ class Player(Bot):
 
         self.strong_hole = False
         if rank1 == rank2 or (rank1 in "AKQJT9876" and rank2 in "AKQJT9876"):
-            print("if statement reached")
             self.strong_hole = True
         
         monte_carlo_iters = 100
@@ -67,10 +64,8 @@ class Player(Bot):
         self.strength_w_auction = strength_w_auction
         self.strength_wo_auction = strength_wo_auction
 
-        if num_rounds == NUM_ROUNDS:
-            print(game_clock)
-
-
+        # if num_rounds == NUM_ROUNDS:
+        #     print(game_clock)
 
     def calculate_strength(self, my_cards, iters):
         deck = eval7.Deck()
@@ -102,7 +97,7 @@ class Player(Bot):
                 wins_wo_auction += 1
             else:
                 # We lost the round
-                wins_wo_auction
+                wins_wo_auction += 0
 
         for i in range(iters):
             deck.shuffle()
@@ -129,13 +124,10 @@ class Player(Bot):
                 #We tied the round
                 wins_w_auction += 0
             
-            strength_w_auction = wins_w_auction / (2* iters)
-            strength_wo_auction = wins_wo_auction/ (2* iters)
+            strength_w_auction = wins_w_auction / (2*iters)
+            strength_wo_auction = wins_wo_auction/ (2*iters)
 
         return strength_w_auction, strength_wo_auction
-
-
-
 
     def handle_round_over(self, game_state, terminal_state, active):
         '''
@@ -149,13 +141,31 @@ class Player(Bot):
         Returns:
         Nothing.
         '''
+        print()
         my_delta = terminal_state.deltas[active]  # your bankroll change from this round
         previous_state = terminal_state.previous_state  # RoundState before payoffs
         street = previous_state.street  # 0, 3, 4, or 5 representing when this round ended
         my_cards = previous_state.hands[active]  # your cards
         opp_cards = previous_state.hands[1-active]  # opponent's cards or [] if not revealed
         pass
+    
+    def enough_chips_to_win_game(self, game_state, active):
+        '''
+        Calculates if we have enough chips to check/fold the rest of the game.
 
+        Arguments:
+        game_state: the GameState object.
+        active: your player's index.
+
+        Returns:
+        True if we have enough chips to check/fold the rest of the game, False otherwise.
+        '''
+        curr_big_blind = bool(active)
+        remaining_rounds = NUM_ROUNDS - game_state.round_num + 1
+        num_small_blinds = math.floor(remaining_rounds / 2) if curr_big_blind else math.ceil(remaining_rounds / 2)
+        num_big_blinds = math.ceil(remaining_rounds / 2) if curr_big_blind else math.floor(remaining_rounds / 2)
+        return game_state.bankroll - (SMALL_BLIND * num_small_blinds + BIG_BLIND * num_big_blinds) > 0
+    
     def get_action(self, game_state, round_state, active):
         '''
         Where the magic happens - your code should implement this function.
@@ -169,7 +179,6 @@ class Player(Bot):
         Returns:
         Your action.
         '''
-        # May be useful, but you may choose to not use.
         legal_actions = round_state.legal_actions()  # the actions you are allowed to take
         street = round_state.street  # 0, 3, 4, or 5 representing pre-flop, flop, turn, or river respectively
         my_cards = round_state.hands[active]  # your cards
@@ -184,23 +193,27 @@ class Player(Bot):
         my_contribution = STARTING_STACK - my_stack  # the number of chips you have contributed to the pot
         opp_contribution = STARTING_STACK - opp_stack  # the number of chips your opponent has contributed to the pot
         pot = my_contribution + opp_contribution
-
         strength_diff = self.strength_w_auction - self.strength_wo_auction
+        
+        # Fold if won enough chips to win game
+        if self.enough_chips_to_win_game(game_state, active):
+            #print("\tcheck/folding to win")
+            return CheckAction() if CheckAction in legal_actions else FoldAction()
 
+        # Fold if not strong hole
+        if not self.strong_hole:
+            return CheckAction() if CheckAction in legal_actions else FoldAction()
+        
+        # Bidding logic
         if BidAction in legal_actions:
-            max_bid_percentage = 0.40
-            min_bid_percentage = 0.15
-            bid_percentage = 0.75*strength_diff + 1/100*random.randint(-500,500)
-            bid_percentage = max(min_bid_percentage, bid_percentage)
-            bid_percentage = min(max_bid_percentage, bid_percentage)
-            bid = int(pot*bid_percentage)
+            bid = 200 if not self.enough_chips_to_win_game(game_state, active) and \
+                self.strength_w_auction > 0.5 and \
+                self.strength_w_auction - self.strength_wo_auction > 0.2 \
+                else 0
             return BidAction(bid)
         
         if RaiseAction in legal_actions:
             min_raise, max_raise = round_state.raise_bounds()
-
-        if not self.strong_hole:
-            return FoldAction()
         
         if street < 3:
             strength = (self.strength_w_auction + self.strength_wo_auction)/2
@@ -221,7 +234,7 @@ class Player(Bot):
         elif CallAction in legal_actions and continue_cost <= my_stack:
             commit_action = CallAction()
         else:
-            print("second fold")
+            print("\tsecond fold")
             commit_action = FoldAction()
 
         if continue_cost > 0:
@@ -251,38 +264,6 @@ class Player(Bot):
                 my_action = CheckAction()
         
         return my_action
-                
-
-
-
-
-
-
-            
-
-        
-
-
-
-
-        if RaiseAction in legal_actions:
-           min_raise, max_raise = round_state.raise_bounds()  # the smallest and largest numbers of chips for a legal bet/raise
-           min_cost = min_raise - my_pip  # the cost of a minimum bet/raise
-           max_cost = max_raise - my_pip  # the cost of a maximum bet/raise
-           print(min_raise, max_raise, my_stack, opp_stack, my_pip, opp_pip)
-        
-        if RaiseAction in legal_actions and len(my_cards) == 3:
-            return RaiseAction(max_raise)
-        if self.strong_hole == True and RaiseAction in legal_actions:
-            raise_amount = min_raise + (max_raise - min_raise) * 0.1
-            return RaiseAction(raise_amount)
-        if CheckAction in legal_actions:
-            return CheckAction()
-        elif BidAction in legal_actions:
-            return BidAction(int(0.5*my_stack)) # random bid between 0 and our stack
-        elif self.strong_hole == False and FoldAction in legal_actions:
-            return FoldAction()
-        return CallAction()
 
 
 if __name__ == '__main__':
