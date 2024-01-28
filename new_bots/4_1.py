@@ -25,6 +25,7 @@ class Player(Bot):
         '''
         self.MONTE_CARLO_ITERS = 200
         self.rounds_fold_to_raise = 0
+        self.PROB_THRESHOLD = 0.6
 
     def handle_new_round(self, game_state, round_state, active):
         '''
@@ -63,9 +64,7 @@ class Player(Bot):
         strength_w_auction, strength_wo_auction = self.calculate_strength(round_state, active, self.MONTE_CARLO_ITERS)
         self.strength_w_auction = strength_w_auction
         self.strength_wo_auction = strength_wo_auction
-
-        # if num_rounds == NUM_ROUNDS:
-        #     print(game_clock)
+        print(f'\tHand: {" ".join(my_cards)}')
 
     def handle_round_over(self, game_state, terminal_state, active):
         '''
@@ -115,12 +114,12 @@ class Player(Bot):
         opp_contribution = STARTING_STACK - opp_stack  # the number of chips your opponent has contributed to the pot
         pot = my_contribution + opp_contribution
         strength_diff = self.strength_w_auction - self.strength_wo_auction
-        
+
         # Bidding logic
         if BidAction in legal_actions:
             max_bid = 200 if strength_diff > 0.2 else 100
             bid = int(max_bid * self.strength_w_auction) if not self.enough_chips_to_win_game(game_state, active) and \
-                self.strength_w_auction > 0.6 \
+                self.strength_w_auction > self.PROB_THRESHOLD \
                 else 0
             return BidAction(bid)
         
@@ -128,50 +127,40 @@ class Player(Bot):
         if self.enough_chips_to_win_game(game_state, active):
             return self.check_fold(legal_actions)
 
-        # Check/Fold if not strong hole
-        if not self.strong_hole:
-            return self.check_fold(legal_actions)
+        print(f'\tBoard: {" ".join(board_cards)}')
         
         if RaiseAction in legal_actions:
             min_raise, max_raise = round_state.raise_bounds()
         
-        if street < 3:
-            strength = (self.strength_w_auction + self.strength_wo_auction)/2
-            #print(f'\tpre-auction strength: {strength}')
-            raise_ammt = int(my_pip + continue_cost + 0.3*pot)
-            raise_cost = int(continue_cost + 0.3*pot)
-        else:
-            strength = self.calculate_strength(round_state, active, self.MONTE_CARLO_ITERS)
-            #print(f'\tpost-auction strength: {strength}')
-            raise_ammt = int(my_pip + continue_cost + 0.5*pot)
-            raise_cost = int(continue_cost + 0.5*pot)
+        strength = (self.strength_w_auction + self.strength_wo_auction)/2 if street < 3 else self.calculate_strength(round_state, active, self.MONTE_CARLO_ITERS)
+        raise_cost = min(int(continue_cost + strength*max(pot, 20)), my_stack)
+        print(f'\t\t{street}: {strength}')
 
-        if RaiseAction in legal_actions and raise_cost <= my_stack:
-            raise_ammt = max(min_raise, raise_ammt)
-            raise_ammt = min(max_raise, raise_ammt)
+        if RaiseAction in legal_actions:
+            raise_ammt = my_pip + raise_cost
+            raise_ammt = min(max(raise_ammt, min_raise), max_raise)
             commit_action = RaiseAction(raise_ammt)
         elif CallAction in legal_actions and continue_cost <= my_stack:
             commit_action = CallAction()
         else:
-            #print("\tsecond check/fold")
             commit_action = self.check_fold(legal_actions)
 
         if continue_cost > 0:
             pot_odds = continue_cost/(continue_cost + pot)
 
             if strength >= pot_odds:
-                if strength > 0.6 and random.random() < strength:
+                if strength > self.PROB_THRESHOLD and random.random() < strength + 0.2:
                     my_action = commit_action
                 else:
                     my_action = CallAction()
             else:
-                if self.rounds_fold_to_raise/game_state.round_num >= 0.3 and strength > 0.6 and random.random() < strength:
+                if self.rounds_fold_to_raise/game_state.round_num >= 0.3 and strength > self.PROB_THRESHOLD and random.random() < strength:
                     my_action = commit_action
                 else:
                     my_action = FoldAction()
                     self.rounds_fold_to_raise += 1
         else:
-            if strength > 0.6 and random.random() < strength:
+            if strength > self.PROB_THRESHOLD and random.random() < strength + 0.2:
                 my_action = commit_action
             else:
                 my_action = CheckAction()
